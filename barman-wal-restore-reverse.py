@@ -12,9 +12,6 @@ import subprocess
 DEFAULT_REMOTE_USER = 'barman'
 DEFAULT_WAL_DIR = '/var/tmp/barman-wal-restore'
 
-"""
-check wal not found error
-"""
 
 def parse_args(args=None):
     parser = argparse.ArgumentParser()
@@ -115,19 +112,7 @@ def wal_decr(wal):
     return "%s%s" % (major_hex, minor_hex)
 
 
-"""
-split wal
-if minor > 0
-    decrement minor
-else
-    decrement major
-    set minor FF
-"""
-
-
-
-def get_wal(config, wal):
-    wal_temp = tempfile.mkstemp(dir=config.destination)
+def get_wal(config, wal, wal_temp):
     ssh_command = (
         'ssh',
         '%s@%s' % (config.user, config.barman_host),
@@ -154,22 +139,27 @@ def get_wal(config, wal):
 
 def main():
     config = parse_args()
-    if not os.path.isdir(config.destination):
-        raise
+    assert(os.path.isdir(config.destination))
 
     print_err("Searching for last WAL number...")
     last_wal = get_last_wal(config)
     print_err("Found: %s" % last_wal)
 
     print_err("Calculating previous WAL...")
-    prev_wal = wal_decr(last_wal)
-    print_err("Previous WAL is: %s" % prev_wal)
+    next_wal = wal_decr(last_wal)
+    print_err("Next WAL is: %s" % next_wal)
 
-    while not os.path.isfile(os.path.join(config.destination, prev_wal)):
-        get_wal(config, prev_wal)
-        prev_wal = wal_decr(prev_wal)
+    while not os.path.isfile(os.path.join(config.destination, next_wal)):
+        try:
+            wal_temp = tempfile.mkstemp(dir=config.destination)
+            get_wal(config, next_wal, wal_temp)
+        except (KeyboardInterrupt, SystemExit):
+            os.unlink(wal_temp[1])
+            sys.exit()
 
-    print_err("WAL already exists: %s" % prev_wal)
+        next_wal = wal_decr(next_wal)
+
+    print_err("WAL already exists: %s" % next_wal)
 
 
 if __name__ == '__main__':
